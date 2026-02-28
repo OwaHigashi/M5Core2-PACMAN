@@ -1124,57 +1124,11 @@ void ClearKeys() {
   but_RIGHT=false;
 }
 
-#define MRECT 40
-#define XDMAX 239
-#define YDMAX 319
-#define YDMID YDMAX/2
-
-Button bt(0, 0, XDMAX, MRECT, false, "top");
-Button bl(0, MRECT, MRECT, YDMAX-MRECT*2, false, "left");
-Button br(XDMAX-MRECT, MRECT, XDMAX, YDMAX-MRECT*2, false, "right");
-Button bb(0, YDMAX-MRECT, XDMAX, YDMAX, false, "bottom");
-Button st(MRECT, YDMID-MRECT, XDMAX-MRECT*2, MRECT, false, "start");
-Button se(MRECT, YDMID, XDMAX-MRECT*2, MRECT, false, "select");
-
-void Write_TouchEventStructures(Event& e) {
-  Serial.println("-------Touch Event occered--------");
-  Serial.printf("button name:%-10s\n",e.button->getName());
-  Serial.printf("%-12s finger%d from(%3d, %3d)",e.typeName(), e.finger,  e.from.x, e.from.y);
-  if (e.type != E_TOUCH && e.type != E_TAP && e.type != E_DBLTAP) {
-    Serial.printf("--> (%3d, %3d)  %5d ms", e.to.x, e.to.y, e.duration);
-  }
-  Serial.println();
-}
-
-void colorButtons(Event& e) {
-//  Write_TouchEventStructures(e);//タッチイベント構造体内容表示
-  Button& b = *e.button;
-  int color;
-//  M5.Lcd.fillRect(b.x, b.y, b.w, b.h, b.isPressed() ? WHITE : BLACK);
-  if(!b.isPressed()) {
-    ClearKeys();
-    return;
-  }
-  if(b == bt) {
-    but_UP=true;
-    Serial.println("UP");
-  } else if(b == bl) {
-    but_LEFT=true;
-    Serial.println("LE");
-  } else if(b == br) {
-    but_RIGHT=true;
-    Serial.println("RI");
-  } else if(b == bb) {
-    but_DOWN=true;
-    Serial.println("DO");
-  } else if(b == st) {
-    but_A=true;
-    Serial.println("DO");
-  } else if(b == se) {
-    but_B=true;
-    Serial.println("DO");
-  }
-}
+// Flick detection variables
+bool flick_active = false;
+int flick_sx = 0, flick_sy = 0;
+int flick_ex = 0, flick_ey = 0;
+#define FLICK_THRESHOLD 30
 
 void setup() {
   randomSeed(analogRead(0));
@@ -1192,12 +1146,6 @@ void setup() {
   M5.Lcd.setRotation(2);
   M5.Lcd.fillScreen(TFT_BLACK);
 //  pinMode(5, INPUT_PULLUP);
-  bt.addHandler(colorButtons, E_TOUCH + E_RELEASE);
-  br.addHandler(colorButtons, E_TOUCH + E_RELEASE);
-  bl.addHandler(colorButtons, E_TOUCH + E_RELEASE);
-  bb.addHandler(colorButtons, E_TOUCH + E_RELEASE);
-  st.addHandler(colorButtons, E_TOUCH + E_RELEASE);
-  se.addHandler(colorButtons, E_TOUCH + E_RELEASE);
   delay(100);
 }
  
@@ -1230,9 +1178,52 @@ void KeyPadLoop(){
 */
 
 Playfield _game;
- 
+
+void flickDetect() {
+  // Track touch every frame for accurate flick direction
+  if (M5.Touch.points > 0 && M5.Touch.point[0].y < 240) {
+    if (!flick_active) {
+      flick_active = true;
+      flick_sx = M5.Touch.point[0].x;
+      flick_sy = M5.Touch.point[0].y;
+    }
+    // Update end position every frame
+    flick_ex = M5.Touch.point[0].x;
+    flick_ey = M5.Touch.point[0].y;
+
+    // Continuous flick: detect direction while still dragging
+    int dx = flick_ex - flick_sx;
+    int dy = flick_ey - flick_sy;
+    int absx = dx < 0 ? -dx : dx;
+    int absy = dy < 0 ? -dy : dy;
+    if (absx > FLICK_THRESHOLD || absy > FLICK_THRESHOLD) {
+      ClearKeys();
+      if (absx > absy) {
+        if (dx > 0) but_RIGHT = true; else but_LEFT = true;
+      } else {
+        if (dy > 0) but_DOWN = true; else but_UP = true;
+      }
+      // Reset start to current position for next direction change
+      flick_sx = flick_ex;
+      flick_sy = flick_ey;
+    }
+  } else if (flick_active) {
+    flick_active = false;
+  }
+
+  // Hardware buttons: BtnB = start/pause, BtnA = reset
+  if (M5.BtnB.wasPressed()) {
+    ClearKeys();
+    but_A = true;
+  }
+  if (M5.BtnA.wasPressed()) {
+    ClearKeys();
+    but_B = true;
+  }
+}
+
 void loop() {
   _game.Step();
-//  KeyPadLoop();
   M5.update();
+  flickDetect();
 }
